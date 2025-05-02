@@ -48,7 +48,7 @@ class AblationStudy:
 
             importants = list(np.array(importants)[bajs])
             datas = list(np.array(datas)[bajs])
-
+        
         importants = [str(imp) for imp in importants]
 
         self.parameters = parameters
@@ -106,6 +106,8 @@ class AblationStudy:
                 indiv_tpr = get_individual_level_tpr(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
             d["indiv_tpr"].append(f"{indiv_tpr * 100:.2f}")
 
+        
+        
         s = self._format_table(d)
         with open(filename, "w") as f:
             f.write(s)
@@ -120,12 +122,9 @@ class AblationStudy:
             if data["fpr"] is None or data["tpr"] is None:
                 plt.fill_between([0, 1], [0, 0], alpha=0.15)
                 plt.plot([0, 1], [0, 0], label=label)
-            else:
-                fpr, tpr = np.array(data["fpr"]), np.array(data["tpr"])
-                outside = (fpr < 1e-5) | (tpr < 1e-5)
-                fpr, tpr = fpr[~outside], tpr[~outside]
-                plt.fill_between(fpr, tpr, alpha=0.15)
-                plt.plot(fpr, tpr, label=label)
+                continue
+            plt.fill_between(data["fpr"], data["tpr"], step='post', alpha=0.15)
+            plt.step(data["fpr"], data["tpr"], label=label, where="post")
 
         # Plot baseline (random guess)
         range01 = np.linspace(0, 1)
