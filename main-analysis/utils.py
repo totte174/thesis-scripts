@@ -1,6 +1,7 @@
 import numpy as np, matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve
 
-def get_individual_level_tpr(data, individuals, indiv_strategy):
+def get_indiv_level_roc(data, individuals, indiv_strategy):
     samples_per_individual = len(data["true_labels"]) // individuals
 
     signals = np.array(data["signal_values"])
@@ -23,11 +24,12 @@ def get_individual_level_tpr(data, individuals, indiv_strategy):
     indiv_labels = labels[::samples_per_individual]
     indiv_labels = np.array(indiv_labels, dtype=bool)
 
-    korv = np.min(indiv_signals[~indiv_labels])
-    indiv_pred = np.array(indiv_signals < korv, dtype=int)
-    tpr = np.sum(indiv_pred[indiv_labels]) / (individuals//2)
-    return tpr
+    fpr, tpr, thresholds = roc_curve(indiv_labels, indiv_signals)
+    return fpr, tpr
 
+def get_indiv_level_fixed_tpr(data, individuals, indiv_strategy):
+    fpr, tpr = get_indiv_level_roc(data, individuals, indiv_strategy)
+    return np.max(tpr[fpr <= 0.0])
 
 class AblationStudy:
     base_fixed_fpr = {
@@ -101,9 +103,9 @@ class AblationStudy:
                 d[fpr].append(f"{fixed_fpr[fpr] * 100:.2f}")
 
             if "indivs" in self.parameters.keys():
-                indiv_tpr = get_individual_level_tpr(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
+                indiv_tpr = get_indiv_level_fixed_tpr(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
             else:
-                indiv_tpr = get_individual_level_tpr(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
+                indiv_tpr = get_indiv_level_fixed_tpr(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
             d["indiv_tpr"].append(f"{indiv_tpr * 100:.2f}")
 
         s = self._format_table(d)
@@ -117,11 +119,11 @@ class AblationStudy:
         for i in range(self.n_results):
             label = self.importants[i]
             data = self.datas[i]
-            if data["fpr"] is None or data["tpr"] is None:
+            fpr, tpr = np.array(data["fpr"]), np.array(data["tpr"])
+            if fpr is None or tpr is None:
                 plt.fill_between([0, 1], [0, 0], alpha=0.15)
                 plt.plot([0, 1], [0, 0], label=label)
             else:
-                fpr, tpr = np.array(data["fpr"]), np.array(data["tpr"])
                 outside = (fpr < 1e-5) | (tpr < 1e-5)
                 fpr, tpr = fpr[~outside], tpr[~outside]
                 plt.fill_between(fpr, tpr, alpha=0.15)
@@ -146,6 +148,45 @@ class AblationStudy:
         plt.savefig(fname=filename, dpi=1000, bbox_inches="tight")
         plt.clf()
 
+    def make_indiv_roc_plot(self, save_dir):
+        filename = f"{save_dir}/ROC_indiv.png"
+
+        for i in range(self.n_results):
+            label = self.importants[i]
+            data = self.datas[i]
+
+            if "indivs" in self.parameters.keys():
+                fpr, tpr = get_indiv_level_roc(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
+            else:
+                fpr, tpr = get_indiv_level_roc(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
+            
+            if fpr is None or tpr is None:
+                plt.fill_between([0, 1], [0, 0], alpha=0.15)
+                plt.plot([0, 1], [0, 0], label=label)
+            else:
+                outside = (fpr < 1e-5) | (tpr < 1e-5)
+                fpr, tpr = fpr[~outside], tpr[~outside]
+                plt.fill_between(fpr, tpr, alpha=0.15)
+                plt.plot(fpr, tpr, label=label)
+
+        # Plot baseline (random guess)
+        range01 = np.linspace(0, 1)
+        plt.plot(range01, range01, "--", label="Random guess")
+
+        # Set plot parameters
+        plt.yscale("log")
+        plt.xscale("log")
+        plt.xlim(left=1e-5)
+        plt.ylim(bottom=1e-5)
+        plt.tight_layout()
+        plt.grid()
+        plt.legend(bbox_to_anchor =(0.5,-0.27), loc="lower center")
+
+        plt.xlabel("False positive rate (FPR)")
+        plt.ylabel("True positive rate (TPR)")
+        #plt.title("ROC Curve")
+        plt.savefig(fname=filename, dpi=1000, bbox_inches="tight")
+        plt.clf()
 
 def objects_to_ablations(objects, config) -> list[AblationStudy]:
     ablations = {}
