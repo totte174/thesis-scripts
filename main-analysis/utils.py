@@ -44,12 +44,13 @@ class AblationStudy:
         assert len(datas) == len(importants)
 
         if "order" in config.keys():
-            # prepare for the worst code you've ever seen
-            bajs = [korv for korv in config["order"] if korv in importants]
-            bajs = [importants.index(imp) for imp in bajs]
+            priority = {key: index for index, key in enumerate(config["order"])}
+            sorted_pairs = sorted(zip(importants, datas), key=lambda x: priority.get(x[0], float('inf')))
 
-            importants = list(np.array(importants)[bajs])
-            datas = list(np.array(datas)[bajs])
+            importants_sorted, datas_sorted = zip(*sorted_pairs)
+
+            importants = list(importants_sorted)
+            datas = list(datas_sorted)
 
         importants = [str(imp) for imp in importants]
 
