@@ -164,8 +164,6 @@ class AblationStudy:
                 plt.fill_between([0, 1], [0, 0], alpha=0.15)
                 plt.plot([0, 1], [0, 0], label=label)
             else:
-                outside = (fpr < 1e-5) | (tpr < 1e-5)
-                fpr, tpr = fpr[~outside], tpr[~outside]
                 plt.fill_between(fpr, tpr, alpha=0.15)
                 plt.plot(fpr, tpr, label=label)
 
@@ -174,10 +172,6 @@ class AblationStudy:
         plt.plot(range01, range01, "--", label="Random guess")
 
         # Set plot parameters
-        plt.yscale("log")
-        plt.xscale("log")
-        plt.xlim(left=1e-5)
-        plt.ylim(bottom=1e-5)
         plt.tight_layout()
         plt.grid()
         plt.legend(bbox_to_anchor =(0.5,-0.27), loc="lower center")
