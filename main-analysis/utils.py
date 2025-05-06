@@ -18,6 +18,11 @@ def get_indiv_level_roc(data, individuals, indiv_strategy):
         q3 = np.quantile(signals_reshaped, 0.75, axis=1, keepdims=True)
         outside_q = (signals_reshaped < q1) | (signals_reshaped > q3)
         indiv_signals = np.mean(signals_reshaped, axis=1, where=outside_q)
+    elif indiv_strategy == "indiv_mle":
+        epsilon = 1e-12  # to prevent log(0)
+        min_val, max_val = np.min(signals_reshaped), np.max(signals_reshaped)
+        log_probs = np.log(np.clip(signals_reshaped, epsilon, 1.0)) if 0.0 <= min_val and max_val <= 1.0 else signals_reshaped
+        indiv_signals  = np.sum(log_probs, axis=1, keepdims=True)
     else:
         raise ValueError("Unknown individual strategy")
 
