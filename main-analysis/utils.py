@@ -146,11 +146,12 @@ class AblationStudy:
         plt.ylim(bottom=1e-5)
         plt.tight_layout()
         plt.grid()
-        plt.legend(bbox_to_anchor =(0.5,-0.27), loc="lower center")
+        plt.legend(loc="lower right")
 
         plt.xlabel("False positive rate (FPR)")
         plt.ylabel("True positive rate (TPR)")
-        #plt.title("ROC Curve")
+        if "title_format" in self.config.keys():
+            plt.title(self.config["title_format"](self.parameters))
         plt.savefig(fname=filename, dpi=1000, bbox_inches="tight")
         plt.clf()
 
@@ -184,7 +185,8 @@ class AblationStudy:
 
         plt.xlabel("False positive rate (FPR)")
         plt.ylabel("True positive rate (TPR)")
-        #plt.title("ROC Curve")
+        if "title_format" in self.config.keys():
+            plt.title(self.config["title_format"](self.parameters))
         plt.savefig(fname=filename, dpi=1000, bbox_inches="tight")
         plt.clf()
 
