@@ -130,7 +130,7 @@ class AblationStudy:
                 plt.fill_between([0, 1], [0, 0], alpha=0.15)
                 plt.plot([0, 1], [0, 0], label=label)
             else:
-                outside = (fpr < 1e-5) | (tpr < 1e-5)
+                outside = (fpr < 1e-5)
                 fpr, tpr = fpr[~outside], tpr[~outside]
                 plt.fill_between(fpr, tpr, alpha=0.15)
                 plt.plot(fpr, tpr, label=label)
