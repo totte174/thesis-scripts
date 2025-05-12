@@ -39,6 +39,7 @@ def get_indiv_level_fixed_fpr(data, individuals, indiv_strategy):
 def get_fixed_fpr(fixed_fpr):
     if fixed_fpr is None:
         return {
+            "TPR@10%FPR": 0.0,
             "TPR@1%FPR": 0.0,
             "TPR@0.1%FPR": 0.0,
             "TPR@0.01%FPR": 0.0,
@@ -47,12 +48,6 @@ def get_fixed_fpr(fixed_fpr):
     return fixed_fpr
 
 class AblationStudy:
-    base_fixed_fpr = {
-            "TPR@1%FPR": 0.0,
-            "TPR@0.1%FPR": 0.0,
-            "TPR@0.01%FPR": 0.0,
-            "TPR@0%FPR": 0.0,
-        }
 
     def __init__(self, parameters, datas, importants, config):
         self.n_results = len(datas)
@@ -90,40 +85,103 @@ class AblationStudy:
             self.fixed_fpr.append(get_fixed_fpr(data["fixed_fpr"]))
 
             if "indivs" in parameters.keys():
-                self.indiv_fpr, self.indiv_tpr = get_indiv_level_roc(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
-                self.indiv_fixed_fpr = get_indiv_level_fixed_fpr(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
+                indiv_fpr, indiv_tpr = get_indiv_level_roc(data, self.parameters["indivs"], self.config["indiv_strategy"])
+                self.indiv_fpr.append(indiv_fpr)
+                self.indiv_tpr.append(indiv_tpr)
+                self.indiv_fixed_fpr.append((data, self.parameters["indivs"], self.config["indiv_strategy"]))
             else:
-                self.indiv_fpr, self.indiv_tpr = get_indiv_level_roc(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
-                self.indiv_fixed_fpr = get_indiv_level_fixed_fpr(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
+                indiv_fpr, indiv_tpr = get_indiv_level_roc(data, self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
+                self.indiv_fpr.append(indiv_fpr)
+                self.indiv_tpr.append(indiv_tpr)
+                self.indiv_fixed_fpr.append(get_indiv_level_fixed_fpr(data, self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"]))
+
+    @classmethod
+    def aggregate(cls, ablations):
+        self = cls.__new__(cls)
+        self.aggregated = True
+        self.parameters = ablations[0].parameters.copy()
+        self.parameters["random_seed"] = "total"
+        self.n_results = ablations[0].n_results
+        self.config = ablations[0].config
+        self.importants = ablations[0].importants
+
+        n_ablations = len(ablations)
+        
+        if n_ablations == 1:
+            self.fixed_fpr = ablations[0].fixed_fpr
+            self.indiv_fixed_fpr = ablations[0].indiv_fixed_fpr
+
+            self.fixed_fpr_var = [{
+            "TPR@10%FPR": 0.0,
+            "TPR@1%FPR": 0.0,
+            "TPR@0.1%FPR": 0.0,
+            "TPR@0.01%FPR": 0.0,
+            "TPR@0%FPR": 0.0,
+            } for _ in range(self.n_results)]
+            self.indiv_fixed_fpr_var = [0.0 for _ in range(self.n_results)]
+        else:
+            metrics = ["TPR@10%FPR", "TPR@1%FPR", "TPR@0.1%FPR", "TPR@0.01%FPR", "TPR@0%FPR"]
+
+            # Initialize mean and variance accumulators
+            self.fixed_fpr = []
+            self.fixed_fpr_var = []
+            self.indiv_fixed_fpr = []
+            self.indiv_fixed_fpr_var = []
+
+            for i in range(self.n_results):
+                # Collect all values for each metric across ablations
+                per_metric_values = {m: [] for m in metrics}
+                indiv_values = []
+
+                for abl in ablations:
+                    for m in metrics:
+                        per_metric_values[m].append(abl.fixed_fpr[i][m])
+                    indiv_values.append(abl.indiv_fixed_fpr[i])
+
+                # Compute mean and variance
+                fixed_mean = {m: float(np.mean(per_metric_values[m])) for m in metrics}
+                fixed_var = {m: float(np.var(per_metric_values[m])) for m in metrics}
+
+                indiv_mean = float(np.mean(indiv_values))
+                indiv_var = float(np.var(indiv_values))
+
+                self.fixed_fpr.append(fixed_mean)
+                self.fixed_fpr_var.append(fixed_var)
+                self.indiv_fixed_fpr.append(indiv_mean)
+                self.indiv_fixed_fpr_var.append(indiv_var)
+
+        return self
 
     def _table_to_string_bold(self) -> str:
         max_sample = {k: max(f[k] for f in self.fixed_fpr) for k in self.fixed_fpr[0].keys()}
-        max_sample = {k: (v if v > 0.0 else np.inf) for k, v in max_sample.items()}
-        max_indiv = max(self.indiv_fixed_fpr)
-        if max_indiv <= 0.0:
-            max_indiv = np.inf
+        max_sample = {k: (f"{v*100:.2f}" if v > 0.00005 else "?") for k, v in max_sample.items()}
+        max_indiv = f"{max(self.indiv_fixed_fpr)*100:.2f}"
+        if max_indiv == "0.00":
+            max_indiv = "?"
         
         # Make best result bold
         new_fixed_fpr = []
         for i in range(self.n_results):
             d = dict()
             for k, v in self.fixed_fpr[i].items():
-                s = f"{v:.2f}"
-                if v == max_sample[k] and self.n_results > 1:
+                s = f"{v*100:.2f}"
+                if s == max_sample[k] and self.n_results > 1:
                     s = r"\textbf{" + s + "}"
                 if self.aggregated:
-                    s = s + " $\pm" + f"{self.fixed_fpr_var[i][k]:.2f}" + "$"
+                    s = s + r" $\pm" + f"{self.fixed_fpr_var[i][k]*100:.2f}" + "$"
 
                 d[k] = s
             new_fixed_fpr.append(d)
 
         new_indiv_fixed_fpr = []
         for i in range(self.n_results):
-            s = str(self.indiv_fixed_fpr[i])
-            if self.indiv_fixed_fpr[i] == max_indiv and self.n_results > 1:
+            s = f"{self.indiv_fixed_fpr[i]*100:.2f}"
+            if self.indiv_fixed_fpr[i] == 1.0:
+                s = r"\textbf{100.0}"
+            elif s == max_indiv and self.n_results > 1:
                 s = r"\textbf{" + s + "}"
             if self.aggregated:
-                s = s + " $\pm" + f"{self.indiv_fixed_fpr_var[i]:.2f}" + "$"
+                s = s + r" $\pm" + f"{self.indiv_fixed_fpr_var[i]*100:.2f}" + "$"
             new_indiv_fixed_fpr.append(s)
 
         return new_fixed_fpr, new_indiv_fixed_fpr
@@ -138,7 +196,7 @@ class AblationStudy:
 
         fixed_fpr, indiv_fixed_fpr = self._table_to_string_bold()
         for i in range(self.n_results):
-            s = s + f'& {fixed_fpr[i]["TPR@0.1%FPR"]:<16} & {fixed_fpr[i]["TPR@0.01%FPR"]:<16} & {indiv_fixed_fpr[i]:<16} \n'
+            s = s + f'& {fixed_fpr[i]["TPR@0.1%FPR"]:<24} & {fixed_fpr[i]["TPR@0.01%FPR"]:<24} & {indiv_fixed_fpr[i]:<24} \n'
 
         with open(filename, "w") as f:
             f.write(s)
@@ -179,7 +237,7 @@ class AblationStudy:
 
         for i in range(self.n_results):
             label = self.importants[i]
-            fpr, tpr = self.indiv_fpr, self.indiv_tpr
+            fpr, tpr = self.indiv_fpr[i], self.indiv_tpr[i]
             plt.fill_between(fpr, tpr, alpha=0.15)
             plt.plot(fpr, tpr, label=label)
 
@@ -221,3 +279,19 @@ def objects_to_ablations(objects, config) -> list[AblationStudy]:
             d["parameters"], d["data"], d["important"], config
         )
         for d in ablations.values()]
+
+def aggregate_on_random_seed(ablations) -> list[AblationStudy]:
+    groups = {}
+    def key(parameters):
+        return tuple((k,v) for k,v in parameters.items() if k != "random_seed")
+
+    for ablation in ablations:
+        k = key(ablation.parameters)
+        if k in groups.keys():
+            groups[k].append(ablation)
+        else:
+            groups[k] = [ablation]
+
+    return [
+        AblationStudy.aggregate(l)
+        for l in groups.values()]
