@@ -32,9 +32,19 @@ def get_indiv_level_roc(data, individuals, indiv_strategy):
     fpr, tpr, thresholds = roc_curve(indiv_labels, indiv_signals)
     return fpr, tpr
 
-def get_indiv_level_fixed_tpr(data, individuals, indiv_strategy):
+def get_indiv_level_fixed_fpr(data, individuals, indiv_strategy):
     fpr, tpr = get_indiv_level_roc(data, individuals, indiv_strategy)
     return np.max(tpr[fpr <= 0.0])
+
+def get_fixed_fpr(fixed_fpr):
+    if fixed_fpr is None:
+        return {
+            "TPR@1%FPR": 0.0,
+            "TPR@0.1%FPR": 0.0,
+            "TPR@0.01%FPR": 0.0,
+            "TPR@0%FPR": 0.0,
+        }
+    return fixed_fpr
 
 class AblationStudy:
     base_fixed_fpr = {
@@ -47,93 +57,102 @@ class AblationStudy:
     def __init__(self, parameters, datas, importants, config):
         self.n_results = len(datas)
         assert len(datas) == len(importants)
+        self.aggregated = False
 
+        # Sort importants
         if "order" in config.keys():
             priority = {key: index for index, key in enumerate(config["order"])}
-            sorted_pairs = sorted(zip(importants, datas), key=lambda x: priority.get(x[0], float('inf')))
-
-            importants_sorted, datas_sorted = zip(*sorted_pairs)
-
-            importants = list(importants_sorted)
-            datas = list(datas_sorted)
-
+        else:
+            priority = {key: index for index, key in enumerate(sorted(importants))}
+        sorted_pairs = sorted(zip(importants, datas), key=lambda x: priority.get(x[0], float('inf')))
+        importants_sorted, datas_sorted = zip(*sorted_pairs)
+        importants = list(importants_sorted)
+        datas = list(datas_sorted)
         importants = [str(imp) for imp in importants]
 
         self.parameters = parameters
-        self.datas = datas
         self.importants = importants
         self.config = config
 
-    def _format_table(self, d) -> str:
+        self.fpr, self.tpr = [], []
+        self.fixed_fpr = []
+        self.indiv_fpr, self.indiv_tpr = [], []
+        self.indiv_fixed_fpr = []
+        for i in range(self.n_results):
+            data = datas[i]
+            if data["fpr"] is not None and data["tpr"] is not None:
+                self.fpr.append(np.array(data["fpr"]))
+                self.tpr.append(np.array(data["tpr"]))
+            else:
+                self.fpr.append(np.zeros(1))
+                self.tpr.append(np.zeros(1))
+            
+            self.fixed_fpr.append(get_fixed_fpr(data["fixed_fpr"]))
+
+            if "indivs" in parameters.keys():
+                self.indiv_fpr, self.indiv_tpr = get_indiv_level_roc(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
+                self.indiv_fixed_fpr = get_indiv_level_fixed_fpr(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
+            else:
+                self.indiv_fpr, self.indiv_tpr = get_indiv_level_roc(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
+                self.indiv_fixed_fpr = get_indiv_level_fixed_fpr(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
+
+    def _table_to_string_bold(self) -> str:
+        max_sample = {k: max(f[k] for f in self.fixed_fpr) for k in self.fixed_fpr[0].keys()}
+        max_sample = {k: (v if v > 0.0 else np.inf) for k, v in max_sample.items()}
+        max_indiv = max(self.indiv_fixed_fpr)
+        if max_indiv <= 0.0:
+            max_indiv = np.inf
+        
         # Make best result bold
-        for k, v in d.items():
-            best = max(float(bajs) for bajs in v)
-            if best > 0.0:
-                for i in range(len(v)):
-                    if float(v[i]) >= best:
-                        v[i] = r"\textbf{" + v[i] + "}"
+        new_fixed_fpr = []
+        for i in range(self.n_results):
+            d = dict()
+            for k, v in self.fixed_fpr[i].items():
+                s = f"{v:.2f}"
+                if v == max_sample[k] and self.n_results > 1:
+                    s = r"\textbf{" + s + "}"
+                if self.aggregated:
+                    s = s + " $\pm" + f"{self.fixed_fpr_var[i][k]:.2f}" + "$"
 
-        s = "% " + " & ".join(self.importants) + "\n\n"
-        s = s + r"\multirow{7}{*}{\texttt{" + self.parameters["target_model"] + "}}\n"
-        s = s + r"& \multicolumn{1}{r|}{\textit{sample-level}}\\" + "\n"
+                d[k] = s
+            new_fixed_fpr.append(d)
 
-        s = s + r"    & \multicolumn{1}{r|}{1.00\%} & " + " & ".join(d["TPR@1%FPR"]) + r"\\" + "\n"
-        s = s + r"    & \multicolumn{1}{r|}{0.10\%} & " + " & ".join(d["TPR@0.1%FPR"]) + r"\\" + "\n"
-        s = s + r"    & \multicolumn{1}{r|}{0.01\%} & " + " & ".join(d["TPR@0.01%FPR"]) + r"\\" + "\n"
-        s = s + r"    & \multicolumn{1}{r|}{0.00\%} & " + " & ".join(d["TPR@0%FPR"]) + r"\\" + "\n"
+        new_indiv_fixed_fpr = []
+        for i in range(self.n_results):
+            s = str(self.indiv_fixed_fpr[i])
+            if self.indiv_fixed_fpr[i] == max_indiv and self.n_results > 1:
+                s = r"\textbf{" + s + "}"
+            if self.aggregated:
+                s = s + " $\pm" + f"{self.indiv_fixed_fpr_var[i]:.2f}" + "$"
+            new_indiv_fixed_fpr.append(s)
 
-        s = s + r"\cmidrule{2-3}" + "\n"
-        s = s + r"& \multicolumn{1}{r|}{\textit{individual-level}}\\" + "\n"
-
-        s = s + r"    & \multicolumn{1}{r|}{0.00\%} & " + " & ".join(d["indiv_tpr"]) + r"\\" + "\n"
-
-        return s
+        return new_fixed_fpr, new_indiv_fixed_fpr
 
     def make_table(self, save_dir):
         """
         Make a latex table for the specific result
         """
         filename = f"{save_dir}/table.tex"
-        d = {
-            "TPR@1%FPR": [],
-            "TPR@0.1%FPR": [],
-            "TPR@0.01%FPR": [],
-            "TPR@0%FPR":[],
-            "indiv_tpr": []
-        }
+
+        s = "% " + " & ".join(self.importants) + "\n\n"
+
+        fixed_fpr, indiv_fixed_fpr = self._table_to_string_bold()
         for i in range(self.n_results):
-            fixed_fpr = self.datas[i]['fixed_fpr']
-            if fixed_fpr is None:
-                fixed_fpr = AblationStudy.base_fixed_fpr
-            for fpr in ["TPR@1%FPR", "TPR@0.1%FPR", "TPR@0.01%FPR", "TPR@0%FPR"]:
-                d[fpr].append(f"{fixed_fpr[fpr] * 100:.2f}")
+            s = s + f'& {fixed_fpr[i]["TPR@0.1%FPR"]:<16} & {fixed_fpr[i]["TPR@0.01%FPR"]:<16} & {indiv_fixed_fpr[i]:<16} \n'
 
-            if "indivs" in self.parameters.keys():
-                indiv_tpr = get_indiv_level_fixed_tpr(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
-            else:
-                indiv_tpr = get_indiv_level_fixed_tpr(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
-            d["indiv_tpr"].append(f"{indiv_tpr * 100:.2f}")
-
-        s = self._format_table(d)
         with open(filename, "w") as f:
             f.write(s)
-
 
     def make_roc_plot(self, save_dir):
         filename = f"{save_dir}/ROC.png"
 
         for i in range(self.n_results):
             label = self.importants[i]
-            data = self.datas[i]
-            fpr, tpr = np.array(data["fpr"]), np.array(data["tpr"])
-            if fpr is None or tpr is None:
-                plt.fill_between([0, 1], [0, 0], alpha=0.15)
-                plt.plot([0, 1], [0, 0], label=label)
-            else:
-                outside = (fpr < 1e-5)
-                fpr, tpr = fpr[~outside], tpr[~outside]
-                plt.fill_between(fpr, tpr, alpha=0.15)
-                plt.plot(fpr, tpr, label=label)
+            fpr, tpr = self.fpr[i], self.tpr[i]
+            outside = (fpr < 1e-5)
+            fpr, tpr = fpr[~outside], tpr[~outside]
+            plt.fill_between(fpr, tpr, alpha=0.15)
+            plt.plot(fpr, tpr, label=label)
 
         # Plot baseline (random guess)
         range01 = np.linspace(0, 1)
@@ -160,19 +179,9 @@ class AblationStudy:
 
         for i in range(self.n_results):
             label = self.importants[i]
-            data = self.datas[i]
-
-            if "indivs" in self.parameters.keys():
-                fpr, tpr = get_indiv_level_roc(self.datas[i], self.parameters["indivs"], self.config["indiv_strategy"])
-            else:
-                fpr, tpr = get_indiv_level_roc(self.datas[i], self.config["ds_indivs"][self.parameters["dataset"]], self.config["indiv_strategy"])
-            
-            if fpr is None or tpr is None:
-                plt.fill_between([0, 1], [0, 0], alpha=0.15)
-                plt.plot([0, 1], [0, 0], label=label)
-            else:
-                plt.fill_between(fpr, tpr, alpha=0.15)
-                plt.plot(fpr, tpr, label=label)
+            fpr, tpr = self.indiv_fpr, self.indiv_tpr
+            plt.fill_between(fpr, tpr, alpha=0.15)
+            plt.plot(fpr, tpr, label=label)
 
         # Plot baseline (random guess)
         range01 = np.linspace(0, 1)
