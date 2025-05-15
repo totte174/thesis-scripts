@@ -166,9 +166,9 @@ class AblationStudy:
             for k, v in self.fixed_fpr[i].items():
                 s = f"{v*100:.2f}"
                 if s == max_sample[k] and self.n_results > 1:
-                    s = r"\textbf{" + s + "}"
+                    s = "\\B{" + s + "}"
                 if self.aggregated:
-                    s = s + r" $\pm" + f"{self.fixed_fpr_var[i][k]*100:.2f}" + "$"
+                    s = s + " \\spm{" + f"{self.fixed_fpr_var[i][k]*100:.2f}" + "}"
 
                 d[k] = s
             new_fixed_fpr.append(d)
@@ -176,12 +176,12 @@ class AblationStudy:
         new_indiv_fixed_fpr = []
         for i in range(self.n_results):
             s = f"{self.indiv_fixed_fpr[i]*100:.2f}"
-            if self.indiv_fixed_fpr[i] == 1.0:
-                s = r"\textbf{100.0}"
+            if self.indiv_fixed_fpr[i] == 1.0 and self.n_results > 1:
+                s = "\\B{100.0}"
             elif s == max_indiv and self.n_results > 1:
-                s = r"\textbf{" + s + "}"
+                s = "\\B{" + s + "}"
             if self.aggregated:
-                s = s + r" $\pm" + f"{self.indiv_fixed_fpr_var[i]*100:.2f}" + "$"
+                s = s + " \\spm{" + f"{self.indiv_fixed_fpr_var[i]*100:.2f}" + "}"
             new_indiv_fixed_fpr.append(s)
 
         return new_fixed_fpr, new_indiv_fixed_fpr
@@ -196,7 +196,7 @@ class AblationStudy:
 
         fixed_fpr, indiv_fixed_fpr = self._table_to_string_bold()
         for i in range(self.n_results):
-            s = s + f'& {fixed_fpr[i]["TPR@0.1%FPR"]:<24} & {fixed_fpr[i]["TPR@0.01%FPR"]:<24} & {indiv_fixed_fpr[i]:<24} \n'
+            s = s + f'& {fixed_fpr[i]["TPR@0.1%FPR"]:<20} & {fixed_fpr[i]["TPR@0.01%FPR"]:<20} & \scl {indiv_fixed_fpr[i]:<24} \n'
 
         with open(filename, "w") as f:
             f.write(s)
